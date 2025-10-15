@@ -1,0 +1,54 @@
+# Docker ignore file
+
+# Virtual environment
+venv/
+env/
+.venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Models (download at runtime)
+*.pt
+*.pth
+*.onnx
+
+# Data
+data/
+logs/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Git
+.git/
+.gitignore
+
+# Documentation
+*.md
+docs/
+
+# Frontend
+frontend/
+
+# Tests
+tests/
+*.pytest_cache/
+
+# Environment
+.env
+.env.local
+

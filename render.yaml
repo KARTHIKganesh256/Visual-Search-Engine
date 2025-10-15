@@ -1,0 +1,20 @@
+# Render deployment configuration
+# Free tier: 750 hours/month
+# Deploy by connecting GitHub repo
+
+services:
+  - type: web
+    name: visual-search-engine
+    env: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: PORT
+        value: 8000
+      - key: MAX_IMAGE_SIZE
+        value: 1024
+      - key: LOG_LEVEL
+        value: INFO
+    healthCheckPath: /
+    autoDeploy: true
+

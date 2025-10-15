@@ -1,0 +1,41 @@
+# Core Backend
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+pydantic==2.5.0
+python-dotenv==1.0.0
+
+# ML & Deep Learning (use versions available on Windows/CPU)
+torch==2.5.1
+torchvision==0.20.1
+ultralytics==8.3.34  # YOLOv8 (Py3.12 compatible)
+transformers==4.35.2  # For CLIP
+pillow==10.1.0
+opencv-python==4.8.1.78
+numpy==1.26.2
+
+# Vector Database
+chromadb==0.4.18
+
+# Image Processing
+scikit-image==0.22.0
+
+# Web Scraping
+scrapy==2.11.0
+beautifulsoup4==4.12.2
+requests==2.31.0
+
+# Translation
+deep-translator==1.11.4
+
+# Utilities
+aiofiles==23.2.1
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+httpx==0.25.2
+
+# Monitoring & Logging
+loguru==0.7.2
+
+# (Optional) ONNX-related packages removed for Py3.12 compatibility on Windows
+
