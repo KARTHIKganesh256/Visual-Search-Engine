@@ -51,8 +51,8 @@ class DetectionResult(BaseModel):
 
 class SearchResult(BaseModel):
     id: str
+    name: str
     similarity: float
-    metadata: dict
 
 class UploadResponse(BaseModel):
     success: bool
@@ -198,8 +198,8 @@ async def search_similar(
         for result in results:
             search_results.append(SearchResult(
                 id=result['id'],
-                similarity=float(result['similarity']),
-                metadata=result['metadata']
+                name=result.get('metadata', {}).get('name', 'Unknown'),
+                similarity=float(result['similarity'])
             ))
         
         logger.info(f"Found {len(search_results)} similar images")
@@ -217,26 +217,21 @@ async def search_similar(
 @app.post("/index")
 async def index_image(
     file: UploadFile = File(...),
-    metadata: Optional[str] = Form(default="{}")
+    name: str = Form(...)
 ):
     """
     Add image to vector database for future searches
     
     Args:
         file: Image file to index
-        metadata: JSON string with additional metadata
+        name: Name/label for the image
         
     Returns:
-        Success status and image ID
+        Success status and image details
     """
     try:
-        import json
-        
-        # Parse metadata
-        try:
-            metadata_dict = json.loads(metadata)
-        except:
-            metadata_dict = {}
+        from datetime import datetime
+        import hashlib
         
         # Process image
         image_bytes = await file.read()
@@ -246,8 +241,14 @@ async def index_image(
         embedding = embedder.embed(processed_image)
         
         # Generate ID
-        import hashlib
         image_id = hashlib.md5(image_bytes).hexdigest()
+        
+        # Create metadata with name
+        timestamp = datetime.now().isoformat()
+        metadata_dict = {
+            "name": name,
+            "timestamp": timestamp
+        }
         
         # Add to vector store
         vector_store.add(
@@ -256,12 +257,13 @@ async def index_image(
             metadatas=[metadata_dict]
         )
         
-        logger.info(f"Indexed image {image_id}")
+        logger.info(f"Indexed image {image_id} with name: {name}")
         
         return {
-            "success": True,
-            "image_id": image_id,
-            "message": "Image indexed successfully"
+            "id": image_id,
+            "name": name,
+            "status": "indexed",
+            "timestamp": timestamp
         }
         
     except Exception as e:
@@ -273,10 +275,22 @@ async def index_image(
 async def get_stats():
     """Get database statistics"""
     try:
-        stats = vector_store.get_stats()
+        # Get all items from database
+        all_data = vector_store.collection.get(include=['metadatas'])
+        
+        # Build indexed images list
+        indexed_images = []
+        for i, img_id in enumerate(all_data['ids']):
+            metadata = all_data['metadatas'][i] if all_data['metadatas'] else {}
+            indexed_images.append({
+                'id': img_id,
+                'name': metadata.get('name', 'Unknown'),
+                'timestamp': metadata.get('timestamp', '')
+            })
+        
         return {
-            "success": True,
-            "stats": stats
+            "total_images": len(all_data['ids']),
+            "indexed_images": indexed_images
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
