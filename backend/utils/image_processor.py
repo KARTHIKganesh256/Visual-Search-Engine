@@ -3,7 +3,7 @@ Image preprocessing utilities
 Handles image validation, resizing, and format conversion
 """
 
-from PIL import Image
+from PIL import Image, ImageOps, ImageFilter
 import io
 import numpy as np
 from typing import Union, Tuple
@@ -24,7 +24,10 @@ class ImageProcessor:
         self,
         max_size: int = 1024,
         min_size: int = 32,
-        target_format: str = 'RGB'
+        target_format: str = 'RGB',
+        auto_orient: bool = True,
+        auto_contrast: bool = True,
+        sharpen: bool = True
     ):
         """
         Initialize image processor
@@ -33,10 +36,16 @@ class ImageProcessor:
             max_size: Maximum dimension (width or height)
             min_size: Minimum dimension
             target_format: Target color format ('RGB', 'L', etc.)
+            auto_orient: Whether to fix EXIF orientation
+            auto_contrast: Apply lightweight auto-contrast for clarity
+            sharpen: Apply gentle sharpening to enhance details
         """
         self.max_size = max_size
         self.min_size = min_size
         self.target_format = target_format
+        self.auto_orient = auto_orient
+        self.auto_contrast = auto_contrast
+        self.sharpen = sharpen
     
     def preprocess(self, image_input: Union[bytes, Image.Image]) -> Image.Image:
         """
@@ -54,9 +63,21 @@ class ImageProcessor:
         else:
             image = image_input
         
+        # Apply EXIF orientation correction
+        if self.auto_orient:
+            image = ImageOps.exif_transpose(image)
+        
         # Convert to target format
         if image.mode != self.target_format:
             image = image.convert(self.target_format)
+        
+        # Lightweight contrast enhancement
+        if self.auto_contrast:
+            image = ImageOps.autocontrast(image)
+
+        # Gentle sharpening to highlight edges
+        if self.sharpen:
+            image = image.filter(ImageFilter.UnsharpMask(radius=1.0, percent=150, threshold=3))
         
         # Validate size
         width, height = image.size

@@ -9,6 +9,8 @@ import numpy as np
 from typing import List, Dict, Optional
 import uuid
 from pathlib import Path
+import shutil
+import logging
 
 
 class VectorStore:
@@ -31,27 +33,71 @@ class VectorStore:
             persist_directory: Directory to persist database
             collection_name: Name of the collection
         """
+        self.logger = logging.getLogger(__name__)
         self.persist_directory = Path(persist_directory)
         self.persist_directory.mkdir(parents=True, exist_ok=True)
-        
-        # Initialize ChromaDB client
-        self.client = chromadb.PersistentClient(
-            path=str(self.persist_directory),
-            settings=Settings(
-                anonymized_telemetry=False,
-                allow_reset=True
-            )
-        )
-        
-        # Get or create collection
-        self.collection = self.client.get_or_create_collection(
-            name=collection_name,
-            metadata={"description": "Image embeddings for visual search"}
-        )
+
+        self.client = None
+        self.collection = None
+
+        self._initialize_collection(collection_name)
         
         print(f"✓ Vector store initialized")
         print(f"  Collection: {collection_name}")
         print(f"  Items: {self.collection.count()}")
+
+    def _initialize_collection(self, collection_name: str) -> None:
+        """
+        Initialize client and collection with graceful recovery if the persisted
+        database is incompatible with the current Chroma version.
+        """
+        try:
+            self.client = chromadb.PersistentClient(
+                path=str(self.persist_directory),
+                settings=Settings(
+                    anonymized_telemetry=False,
+                    allow_reset=True
+                )
+            )
+            self.collection = self.client.get_or_create_collection(
+                name=collection_name,
+                metadata={"description": "Image embeddings for visual search"}
+            )
+        except Exception as exc:
+            message = str(exc).lower()
+            if "no such column" in message or "operationalerror" in message:
+                self.logger.warning(
+                    "Chroma persistence at %s is incompatible with the current version. "
+                    "Resetting the vector store.",
+                    self.persist_directory
+                )
+                if self.client is not None:
+                    try:
+                        self.client.reset()
+                    except Exception:
+                        pass
+                    finally:
+                        self.client = None
+                        self.collection = None
+
+                # Remove persisted files safely
+                if self.persist_directory.exists():
+                    shutil.rmtree(self.persist_directory, ignore_errors=True)
+                self.persist_directory.mkdir(parents=True, exist_ok=True)
+
+                self.client = chromadb.PersistentClient(
+                    path=str(self.persist_directory),
+                    settings=Settings(
+                        anonymized_telemetry=False,
+                        allow_reset=True
+                    )
+                )
+                self.collection = self.client.get_or_create_collection(
+                    name=collection_name,
+                    metadata={"description": "Image embeddings for visual search"}
+                )
+            else:
+                raise
     
     def add(
         self,

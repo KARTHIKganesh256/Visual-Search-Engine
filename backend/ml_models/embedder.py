@@ -3,12 +3,19 @@ CLIP Image Embedder
 Generates visual embeddings for similarity search
 """
 
+import os
+import ssl
 import torch
 import torch.nn.functional as F
 from transformers import CLIPProcessor, CLIPModel
 from PIL import Image
 import numpy as np
 from typing import List, Union
+
+# Disable SSL verification for corporate networks (development only)
+os.environ['CURL_CA_BUNDLE'] = ''
+os.environ['REQUESTS_CA_BUNDLE'] = ''
+ssl._create_default_https_context = ssl._create_unverified_context
 
 # Fix for PyTorch 2.6 weights_only issue
 from .pytorch_fix import apply_pytorch_fix

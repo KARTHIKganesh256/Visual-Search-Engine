@@ -27,16 +27,26 @@ class ObjectDetector:
     - 'x' (xlarge): Best accuracy (136MB)
     """
     
-    def __init__(self, model_size: str = 'n', confidence_threshold: float = 0.25):
+    def __init__(
+        self,
+        model_size: str = 'n',
+        confidence_threshold: float = 0.25,
+        image_size: int = 768,
+        use_tta: bool = True
+    ):
         """
         Initialize YOLOv8 detector
         
         Args:
             model_size: Model size ('n', 's', 'm', 'l', 'x')
             confidence_threshold: Minimum confidence for detections
+            image_size: Inference image size (pixels)
+            use_tta: Enable light test-time augmentation for accuracy
         """
         self.model_size = model_size
         self.confidence_threshold = confidence_threshold
+        self.image_size = image_size
+        self.use_tta = use_tta
         
         # Use GPU if available
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -44,6 +54,11 @@ class ObjectDetector:
         # Load model (auto-downloads if not present)
         model_name = f'yolov8{model_size}.pt'
         self.model = YOLO(model_name)
+        try:
+            self.model.fuse()
+        except Exception:
+            # Fuse may fail on some backends; ignore
+            pass
         
         print(f"✓ YOLOv8-{model_size} loaded on {self.device}")
         print(f"  Model supports {len(self.model.names)} classes")
@@ -60,7 +75,14 @@ class ObjectDetector:
             List of detections with class, confidence, and bbox
         """
         # Run inference
-        results = self.model(image, conf=self.confidence_threshold, device=self.device)
+        results = self.model.predict(
+            image,
+            conf=self.confidence_threshold,
+            device=self.device,
+            imgsz=self.image_size,
+            augment=self.use_tta,
+            verbose=False
+        )
         
         detections = []
         

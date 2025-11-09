@@ -48,6 +48,7 @@ This MVP allows users to:
 ### ML/AI Models
 - **YOLOv8** (Ultralytics) - Object detection
 - **CLIP** (OpenAI) - Visual embeddings & similarity
+- **BLIP** (Salesforce) - Natural-language captions for auto-naming
 - **PyTorch/ONNX** - Model inference
 
 ### Database
@@ -77,6 +78,7 @@ This MVP allows users to:
 1. ✅ Build FastAPI endpoints
    - `/upload` - Image upload
    - `/detect` - Object detection
+   - `/caption` - Image captioning (BLIP)
    - `/search` - Similarity search
 2. ✅ Integrate vector database (ChromaDB)
 3. ✅ Add preprocessing pipeline
@@ -144,6 +146,9 @@ cd backend
 uvicorn main:app --reload --port 8000
 ```
 API docs: http://localhost:8000/docs
+
+Captioning notes:
+- First run will download BLIP weights. If behind corporate SSL interception, the code disables SSL verification during model download for development.
 
 ### 5. Run Frontend
 ```bash

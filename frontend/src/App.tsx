@@ -13,6 +13,12 @@ interface SearchResult {
   id: string;
 }
 
+interface DetectionResult {
+  class_name: string;
+  confidence: number;
+  bbox: number[];
+}
+
 interface IndexResponse {
   id: string;
   name: string;
@@ -24,6 +30,11 @@ interface SearchResponse {
   results: SearchResult[];
 }
 
+interface CaptionResponse {
+  success: boolean;
+  caption: string;
+}
+
 const API_BASE_URL = 'http://localhost:8000';
 
 function App() {
@@ -31,24 +42,26 @@ function App() {
   const [imagePreview, setImagePreview] = useState<string>('');
   const [imageName, setImageName] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [detections, setDetections] = useState<DetectionResult[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isCaptioning, setIsCaptioning] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
   const [stats, setStats] = useState({ total_images: 0, indexed_images: [] });
+  const [autoIndexing, setAutoIndexing] = useState(false);
+  const [lastIndexedHash, setLastIndexedHash] = useState<string | null>(null);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Convert file to base64
-  const fileToBase64 = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = error => reject(error);
-    });
+  const hashFile = async (file: File): Promise<string> => {
+    const buffer = await file.arrayBuffer();
+    const digest = await crypto.subtle.digest('SHA-256', buffer);
+    return Array.from(new Uint8Array(digest))
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
   };
 
   // Handle image selection
-  const handleImageSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
       setSelectedImage(file);
@@ -58,6 +71,68 @@ function App() {
       };
       reader.readAsDataURL(file);
       setMessage(null);
+      setDetections([]);
+
+      const fileHash = await hashFile(file);
+      const alreadyIndexed = lastIndexedHash === fileHash;
+      if (!alreadyIndexed) {
+        setLastIndexedHash(null);
+      }
+
+      // Auto-generate name using captioning endpoint
+      let autoCaption = '';
+      try {
+        setIsCaptioning(true);
+        setImageName("");
+        const form = new FormData();
+        form.append('file', file);
+        const resp = await axios.post<CaptionResponse>(`${API_BASE_URL}/caption`, form, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        });
+        autoCaption = resp.data?.caption || '';
+        setImageName(autoCaption);
+      } catch (err: any) {
+        // ignore caption errors; backend will still index with fallback name
+        setImageName("");
+      } finally {
+        setIsCaptioning(false);
+      }
+
+      // Detect objects for quick summary
+      try {
+        const detectForm = new FormData();
+        detectForm.append('file', file);
+        const detectResp = await axios.post<{ detections: DetectionResult[] }>(
+          `${API_BASE_URL}/detect`,
+          detectForm,
+          {
+            headers: { 'Content-Type': 'multipart/form-data' },
+          }
+        );
+        setDetections(detectResp.data?.detections || []);
+      } finally {
+        // nothing extra
+      }
+
+      if (autoIndexing && !alreadyIndexed) {
+        try {
+          setIsLoading(true);
+          const response = await handleIndexInternal(file, autoCaption);
+          setMessage({
+            type: 'success',
+            text: `Image auto-added as "${response.name}"`
+          });
+          setLastIndexedHash(fileHash);
+          fetchStats();
+        } catch (err: any) {
+          setMessage({
+            type: 'error',
+            text: err.response?.data?.detail || 'Auto indexing failed'
+          });
+        } finally {
+          setIsLoading(false);
+        }
+      }
     }
   };
 
@@ -67,15 +142,33 @@ function App() {
     setImagePreview('');
     setImageName('');
     setSearchResults([]);
+    setDetections([]);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
   };
 
+  const handleIndexInternal = async (file: File, captionOverride?: string) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const nameToUse = captionOverride ?? imageName;
+    if (nameToUse.trim()) {
+      formData.append('name', nameToUse.trim());
+    }
+
+    const response = await axios.post<IndexResponse>(`${API_BASE_URL}/index`, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+
+    return response.data;
+  };
+
   // Index image
   const handleIndex = async () => {
-    if (!selectedImage || !imageName.trim()) {
-      setMessage({ type: 'error', text: 'Please select an image and enter a name' });
+    if (!selectedImage) {
+      setMessage({ type: 'error', text: 'Please select an image' });
       return;
     }
 
@@ -83,20 +176,14 @@ function App() {
     setMessage(null);
 
     try {
-      const formData = new FormData();
-      formData.append('file', selectedImage);
-      formData.append('name', imageName.trim());
-
-      const response = await axios.post<IndexResponse>(`${API_BASE_URL}/index`, formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      });
+      const response = await handleIndexInternal(selectedImage);
 
       setMessage({ 
         type: 'success', 
-        text: `Image indexed successfully as "${response.data.name}"` 
+        text: `Image indexed successfully as "${response.name}"` 
       });
+      const fileHash = await hashFile(selectedImage);
+      setLastIndexedHash(fileHash);
       
       // Clear form
       clearImage();
@@ -249,7 +336,7 @@ function App() {
                   <span>Upload & Index Image</span>
                 </CardTitle>
                 <CardDescription>
-                  Upload an image and give it a name to add it to the search index
+                  Upload an image to add it to the search index. Name is optional.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
@@ -282,6 +369,31 @@ function App() {
                           <X className="h-4 w-4 mr-2" />
                           Remove
                         </Button>
+                        {/* Auto name display inside upload tile */}
+                        <div className="text-left">
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Auto Name
+                          </label>
+                          <div className="text-sm text-gray-800 bg-gray-50 border rounded-md px-3 py-2">
+                            {isCaptioning ? 'Generating name…' : (imageName || 'Will be generated during indexing')}
+                          </div>
+                        </div>
+                        {/* Detection summary inside upload tile */}
+                        {detections.length > 0 && (
+                          <div className="text-left w-full">
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                              Detected Objects
+                            </label>
+                            <ul className="space-y-1 text-sm text-gray-800 bg-gray-50 border rounded-md px-3 py-2 max-h-40 overflow-auto">
+                              {detections.map((det, idx) => (
+                                <li key={`${det.class_name}-${idx}`} className="flex justify-between">
+                                  <span>{det.class_name}</span>
+                                  <span className="text-gray-500">{(det.confidence * 100).toFixed(0)}%</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
                       </div>
                     ) : (
                       <div className="space-y-2">
@@ -296,25 +408,27 @@ function App() {
                     )}
                   </div>
                 </div>
-
-                {/* Name Input */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Image Name
+                <div className="flex items-center justify-between text-sm text-gray-700">
+                  <label className="flex items-center space-x-2">
+                    <input
+                      type="checkbox"
+                      checked={autoIndexing}
+                      onChange={(e) => setAutoIndexing(e.target.checked)}
+                      className="h-4 w-4 text-blue-600 border-gray-300 rounded"
+                    />
+                    <span>Auto add to database</span>
                   </label>
-                  <Input
-                    type="text"
-                    placeholder="e.g., Cat, Dog, Car..."
-                    value={imageName}
-                    onChange={(e) => setImageName(e.target.value)}
-                    disabled={!selectedImage}
-                  />
+                  {autoIndexing && lastIndexedHash && selectedImage && (
+                    <span className="text-xs text-gray-500">
+                      last added: {lastIndexedHash.slice(0, 8)}
+                    </span>
+                  )}
                 </div>
 
                 {/* Index Button */}
                 <Button
                   onClick={handleIndex}
-                  disabled={!selectedImage || !imageName.trim() || isLoading}
+                  disabled={!selectedImage || isLoading}
                   className="w-full"
                 >
                   {isLoading ? 'Indexing...' : 'Index Image'}

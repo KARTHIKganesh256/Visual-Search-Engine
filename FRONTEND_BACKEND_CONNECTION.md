@@ -199,3 +199,11 @@ The frontend will automatically open at `http://localhost:3000` and connect to t
 
 Both frontend and backend are properly configured and all endpoints are aligned with correct request/response formats.
 
+
+
+
+
+
+
+
+

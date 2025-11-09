@@ -9,6 +9,16 @@ from ultralytics import YOLO
 from transformers import CLIPModel, CLIPProcessor
 import torch
 
+# Apply PyTorch 2.6 compatibility fix
+try:
+    import sys
+    sys.path.append('backend')
+    from ml_models.pytorch_fix import apply_pytorch_fix
+    apply_pytorch_fix()
+    print("✓ Applied PyTorch compatibility fix")
+except Exception as e:
+    print(f"⚠ PyTorch fix not applied: {e}")
+
 def create_directories():
     """Create necessary directories"""
     dirs = [
@@ -25,21 +35,40 @@ def create_directories():
 def download_yolo(model_size='n'):
     """
     Download YOLOv8 model
-    
+
     Args:
         model_size: n (nano), s (small), m (medium), l (large), x (xlarge)
     """
     print(f"\n📦 Downloading YOLOv8-{model_size}...")
-    
-    model_name = f'yolov8{model_size}.pt'
-    model = YOLO(model_name)
-    
-    # Verify
-    print(f"✓ YOLOv8-{model_size} downloaded successfully")
-    print(f"  Location: {model.model_path}")
-    print(f"  Classes: {len(model.names)}")
-    
-    return model
+
+    # Workaround for PyTorch 2.6 compatibility
+    import torch.serialization
+    original_load = torch.load
+
+    def patched_load(*args, **kwargs):
+        # Force weights_only=False for YOLO model loading
+        kwargs['weights_only'] = False
+        return original_load(*args, **kwargs)
+
+    # Temporarily patch torch.load
+    torch.load = patched_load
+
+    try:
+        model_name = f'yolov8{model_size}.pt'
+        model = YOLO(model_name)
+
+        # Verify (avoid accessing deprecated/non-existent attributes like model_path)
+        print(f"✓ YOLOv8-{model_size} downloaded successfully")
+        try:
+            class_count = len(getattr(model, 'names', {}))
+            print(f"  Classes: {class_count}")
+        except Exception:
+            pass
+
+        return model
+    finally:
+        # Restore original torch.load
+        torch.load = original_load
 
 def download_clip(model_name='openai/clip-vit-base-patch32'):
     """
@@ -63,33 +92,49 @@ def download_clip(model_name='openai/clip-vit-base-patch32'):
 def test_models():
     """Test models with dummy data"""
     print("\n🧪 Testing models...")
-    
+
     # Test YOLO
     print("\n1. Testing YOLOv8...")
-    model = YOLO('yolov8n.pt')
-    
-    from PIL import Image
-    import numpy as np
-    
-    # Create dummy image
-    dummy_image = Image.fromarray(np.random.randint(0, 255, (640, 640, 3), dtype=np.uint8))
-    
-    results = model(dummy_image, verbose=False)
-    print("   ✓ YOLOv8 inference working")
-    
+
+    # Apply the same torch.load patch for testing
+    original_load = torch.load
+
+    def patched_load(*args, **kwargs):
+        # Force weights_only=False for YOLO model loading
+        kwargs['weights_only'] = False
+        return original_load(*args, **kwargs)
+
+    # Temporarily patch torch.load
+    torch.load = patched_load
+
+    try:
+        model = YOLO('yolov8n.pt')
+
+        from PIL import Image
+        import numpy as np
+
+        # Create dummy image
+        dummy_image = Image.fromarray(np.random.randint(0, 255, (640, 640, 3), dtype=np.uint8))
+
+        results = model(dummy_image, verbose=False)
+        print("   ✓ YOLOv8 inference working")
+    finally:
+        # Restore original torch.load
+        torch.load = original_load
+
     # Test CLIP
     print("\n2. Testing CLIP...")
     clip_model = CLIPModel.from_pretrained('openai/clip-vit-base-patch32')
     clip_processor = CLIPProcessor.from_pretrained('openai/clip-vit-base-patch32')
-    
+
     inputs = clip_processor(images=dummy_image, return_tensors="pt")
-    
+
     with torch.no_grad():
         image_features = clip_model.get_image_features(**inputs)
-    
+
     print("   ✓ CLIP inference working")
     print(f"   Embedding shape: {image_features.shape}")
-    
+
     print("\n✅ All models working correctly!")
 
 def download_test_images():
